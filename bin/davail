@@ -1,0 +1,142 @@
+#!/usr/bin/env ruby
+# encoding: utf-8
+
+require_relative '../lib/davail'
+
+begin
+  module Davail
+    def self.activity! &block
+      return block.call unless !ACTIVITY_STYLE
+
+      begin
+        Thread.new(&block).tap do |thread|
+          thread.priority = 9000
+          indicator = ACTIVITY_INDICATORS[ACTIVITY_STYLE].dup
+
+          while thread.alive?
+            ACTIVITY_INDICATOR.each do |frame|
+              print indicator.first + " "
+              sleep 0.05
+              print ?\b * 2
+
+              indicator.push indicator.shift
+            end
+          end
+
+          thread.join
+        end
+      rescue Whois::Error => e
+        puts Rainbow(e.message).yellow
+        abort
+      end
+    end
+
+    Options = {}
+
+    begin
+      OptionParser.new do |o|
+        o.banner = "#{USAGE}\nDetermine domain name availability."
+
+        o.separator ''
+        o.on '-h', '--help',    "Display this help and exit" do puts o;                        exit end
+        o.on '-v', '--version', "Display version and exit"   do puts "davail #{VERSION * ?.}"; exit end
+
+        o.separator ''
+        o.on '-a', '--all-tlds', "Check all TLDs" do Options[:check_all] = true end
+
+        o.separator ''
+        o.on '-b', '--blink-available', "Blink when available"     do         Options[:blink_available] = true end
+        # o.on '-S', '--activity style',  "Activity indicator style" do |value| Options[:activity_style] = value end
+
+        o.separator ''
+        o.on '-e', '--detailed-errors', "Detailed error messages" do Options[:error_details] = true end
+      end.parse! ARGV
+    rescue OptionParser::InvalidOption => e
+      warn "#{File.basename $0}: #{e.message.capitalize}"
+      abort
+    end
+
+    if ARGV.empty?
+      puts USAGE
+      puts "Try davail --help for more information."
+      abort
+    end
+
+    @tlds = QUERIED_TLDS
+
+    if Options[:check_all]
+      # FIXME: Investigate what this lines does, exactly…
+      @tlds = ALL_TLDS.map { |t| t[1..-1] }#.reject { |t| t.length > 4 }
+    end
+
+    @start_time = Time.now
+
+    @client = Whois::Client.new
+    @domains = Hash.new { |h, k| h[k] = [] }
+
+    ARGV.each do |sld|
+      @tlds.each do |tld|
+        @domains[sld] << tld
+      end
+    end
+
+    @domains.each_with_index do |(sld, tlds), sld_index|
+      print RESULT_SPARATOR if RESULT_SPARATOR and not sld_index.zero?
+
+      domains = tlds.map { |tld| SimpleIDN.to_unicode %{#{sld}.#{tld}} }
+      column_width = domains.group_by(&:length).max.first + RESULT_DELIMITER.length
+
+      domains.each do |domain|
+        begin
+          print Rainbow(%Q{#{domain}#{RESULT_DELIMITER}}.ljust(column_width)).bright
+
+          # TODO: Async & throbbers
+          # activity! { record = @client.lookup domain }
+
+          record = @client.lookup domain
+
+          if record.available?
+            if Options[:blink_available]
+              print Rainbow("Available").green.blink
+            else
+              print Rainbow("Available").green
+            end
+          else
+            print Rainbow("Unavailable").red
+            print Rainbow(" until #{record.expires_on.strftime DATE_FORMAT}").italic unless record.expires_on.nil?
+          end
+
+          puts
+        rescue Timeout::Error
+          puts Rainbow("Timeout").yellow; next
+        rescue Whois::ResponseIsThrottled
+          puts Rainbow("Throttled").yellow; next
+        rescue Whois::NoInterfaceError
+          puts Rainbow("No interface").yellow; next
+        rescue Whois::WebInterfaceError => e
+          print Rainbow("No interface").yellow
+          print " (see #{e.url} instead)" unless e.url.nil?
+          puts; next
+        rescue StandardError => e
+          message = if Options[:error_details] and e.message.present?
+              e.message.gsub(/\n/, " ").strip
+            else
+              "Error"
+            end
+          print Rainbow(message).yellow
+          puts; next
+        end
+      end
+    end
+
+    if SHOW_LOOKUP_TIME
+      @domains_count = @domains.values.flatten(1).length
+      puts "\nQueried #@domains_count name#{"s" unless @domains_count == 1} in #{(Time.now - @start_time).round 2} seconds"
+    end
+  end
+rescue LoadError => e
+  warn "#{File.basename $0}: Missing dependency: #{e.message.gsub /.* -- /, ''}"
+  abort
+rescue Interrupt
+  puts
+end
