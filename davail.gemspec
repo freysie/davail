@@ -4,8 +4,8 @@ Gem::Specification.new do |s|
   s.name    = 'davail'
   s.version = Davail::VERSION_STRING
 
-  s.authors  = %w[Freya Ariel]
-  s.email    = %w[hifreyaariel@icloud.com]
+  s.authors  = ['Freya Ariel']
+  s.email    = ['hifreyaariel@icloud.com']
   s.homepage = 'https://github.com/freyaariel/davail'
 
   s.summary     = "Determine domain name availability."

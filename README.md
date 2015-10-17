@@ -33,7 +33,7 @@ result_delimiter: "  "
 
 ## Requirements
 
-Only tested on Ruby 2.2.3.
+Only tested with Ruby 2.2.0, 2.2.2, and 2.2.3.
 
 ## Known Issues
 
